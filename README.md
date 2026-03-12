@@ -86,9 +86,7 @@ Beispiel (`schemas/enriched_legal_act.schema.json`):
 ## Erwartete Deliverables (Minimal)
 - `README.md` als zentrale Aufgabenstellung + technische Doku
 - Exportierte `n8n`-Workflows (`.json`)
-- Zielmodell fuer `enriched` (JSON Schema oder klar dokumentiertes Beispiel)
 - Ergebnisse als JSON-Dateien im Repo (z. B. `results/*.json`)
-- Kurze Liste mit Limitierungen/Offenen Punkten
 - Abgabe als Pull Request
 
 ## Abnahmekriterien
@@ -122,44 +120,6 @@ Beispiel (`schemas/enriched_legal_act.schema.json`):
 - `make setup` erstellt lokale venv und installiert `requirements.txt`.
 - `make check` validiert die JSON-Beispieldateien auf gueltiges JSON.
 - `make run-backfill` und `make run-daily` zeigen die vorgesehenen Startpunkte in `n8n`.
----
 
-## Was in ein leeres Repo rein soll (ausreichend)
-Ja, dein Vorschlag reicht in der Praxis aus. Lege in ein neues, leeres Repository mindestens diese Struktur:
-
-```text
-nrw-legal-pipeline/
-  README.md
-  .env.example
-  .gitignore
-  schemas/
-    enriched_legal_act.schema.json
-  workflows/
-    nrw_backfill.json
-    nrw_daily_pipeline.json
-  results/
-    sample_records.json
-    run_report_example.json
-```
-
-### Inhaltsempfehlungen
-- `README.md`: Aufgabenstellung, Schnellstart, Setup, Ausfuehrung (Backfill + Daily), Betriebsnotizen.
-- `.env.example`: benoetigte Variablen (Quellen-URLs, API-Keys, Zielsystem, Alerting).
-- `schemas/enriched_legal_act.schema.json`: Zielstruktur fuer das Enrichment.
-- `workflows/*.json`: Exportierte `n8n`-Workflows fuer direkten Import.
-- `results/*.json`: erzeugte Ergebnisdateien + Beispielreport.
-
-## LLM-Vorgabe
-- LLM ist frei waehlbar.
-- Optional kann ein `OPENAI_API_KEY` bereitgestellt werden, falls fuer Enrichment benoetigt.
-- Entscheidung und Begruendung kurz im `README.md` dokumentieren.
-
-## Hinweis fuer den Kandidaten
-Die Umsetzung soll **explizit mit `n8n`** erfolgen.  
-Wenn zusaetzliche Tools verwendet werden, muessen sie den `n8n`-Workflow ergaenzen (nicht ersetzen).
-
-## Abgabe
-- Ergebnis als Pull Request mit:
-  - kurzer Zusammenfassung der Umsetzung
-  - Hinweisen zum Testen
-  - offenen Punkten / bekannten Grenzen
+Freue mich sehr auf deine Ergebnisse!
+NM
