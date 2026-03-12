@@ -21,13 +21,13 @@ Wir interessieren uns ausschließlich für Gesetze, die in Kraft sind.
 
 ### 1) Quellenanalyse und Datenmodell
 - Identifiziere relevante NRW-Quellen (z. B. Amtsblatt/Gesetzesportale/APIs/RSS, falls verfuegbar).
-- Dokumentiere Feldmapping Quelle -> Zieldatenmodell (siehe )
+- Dokumentiere Feldmapping Quelle -> Zieldatenmodell (siehe `schemas/enriched_legal_act.schema.json`).
 
 ### 2) Vollstaendiges Dataset aufbauen (Backfill)
 - Implementiere einen `n8n`-Workflow fuer den initialen Datenaufbau.
 - Anforderungen:
   - Pagination/Batching fuer grosse Datenmengen
-  - Deduplizierung (z. B. ueber `documentId` + `version`)
+  - Deduplizierung (z. B. ueber `legal_act.document_id` + `legal_act.entity_type`)
   - Robuste Fehlerbehandlung mit Retry-Strategie
   - Checkpoints/Resume-Moeglichkeit bei Abbruch
 - Ergebnis: reproduzierbarer Vollimport mit nachvollziehbarem Laufprotokoll.
@@ -59,21 +59,27 @@ Beispiel (`schemas/enriched_legal_act.schema.json`):
 
 ```json
 {
-  "documentId": "string",
-  "title": "string",
-  "jurisdiction": "NRW",
-  "publicationDate": "YYYY-MM-DD",
-  "effectiveDate": "YYYY-MM-DD|null",
-  "url": "string",
-  "language": "de|en",
-  "version": "string|null",
-  "source": "string",
-  "text": "string",
-  "enriched": {
-    "summary": "string",
-    "keywords": ["string"],
-    "topics": ["string"]
-  }
+  "legal_act": {
+    "document_id": "string",
+    "jurisdiction": "de_nw",
+    "title": "string|null",
+    "summary": "string|null",
+    "publication_date": "YYYY-MM-DD|null",
+    "entity_type": "legal_act|consolidated_act"
+  },
+  "legal_act_relations": [
+    {
+      "source_document_id": "string",
+      "target_document_id": "string",
+      "relation_type": "string",
+      "concerned_sections": [
+        {
+          "subdivision_concerned": "string",
+          "comment": "string|null"
+        }
+      ]
+    }
+  ]
 }
 ```
 
@@ -91,6 +97,31 @@ Beispiel (`schemas/enriched_legal_act.schema.json`):
 - Deduplizierung funktioniert sichtbar.
 - Fehler sind nachvollziehbar geloggt und in Reports sichtbar.
 - Setup ist fuer Dritte in < 30 Minuten startbar.
+
+## Schnellstart fuer Werkstudenten (von 0)
+1. Repository auschecken und in den Projektordner wechseln.
+2. Python-Umgebung aufsetzen und Dependencies installieren:
+   - `python3 -m venv .venv`
+   - `source .venv/bin/activate`
+   - `pip install -r requirements.txt`
+3. Umgebungsvariablen anlegen:
+   - `.env.example` nach `.env` kopieren
+   - benoetigte Werte eintragen (mindestens Quellen + optional LLM Key)
+4. `n8n` lokal starten und Workflows importieren:
+   - `workflows/nrw_backfill.json`
+   - `workflows/nrw_daily_pipeline.json`
+5. Ergebnis- und Reportformat anhand von:
+   - `results/sample_records.json`
+   - `results/run_report_example.json`
+6. Vor Abgabe sicherstellen:
+   - Workflows exportiert und aktualisiert
+   - offene Punkte dokumentiert
+   - PR mit Testhinweisen erstellt
+
+### Optionaler Komfort via Makefile
+- `make setup` erstellt lokale venv und installiert `requirements.txt`.
+- `make check` validiert die JSON-Beispieldateien auf gueltiges JSON.
+- `make run-backfill` und `make run-daily` zeigen die vorgesehenen Startpunkte in `n8n`.
 ---
 
 ## Was in ein leeres Repo rein soll (ausreichend)

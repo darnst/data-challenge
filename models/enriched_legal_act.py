@@ -3,7 +3,7 @@
 from pydantic import BaseModel, Field
 from typing import List, Literal, Optional
 
-from data_pipeline.models.common.jurisdiction_slugs import JurisdictionSlug
+from models.jurisdiction_slugs import JurisdictionSlug
 
 LegalActType = Literal[
     "regulation",
@@ -51,15 +51,15 @@ def type_from_eli_type(eli_type: Optional[str]) -> Optional[LegalActType]:
 
 
 class LegalAct(BaseModel):
-    """Legal act model aligned with Airtable legalAct table.
+    """Legal act model aligned with database legalAct table.
     
-    This model contains only the fields that are actually loaded to Airtable.
+    This model contains only the fields that are actually loaded to the database.
     It unifies data from all jurisdictions (EU, DE, NL) into a common structure.
     
     Note: Text fields (url, title, title_short, summary, abbreviation) are stored
     in the legalActText table for multi-language support (3NF normalization).
     They are included here temporarily for extraction/enrichment pipeline but
-    will be saved to legalActText during Airtable loading.
+    will be saved to legalActText during database loading.
     """
     
     document_id: str = Field(
@@ -84,16 +84,6 @@ class LegalAct(BaseModel):
         description="Optional fallback text URL (typically alternate language from legalActText)."
     )
 
-    fallback_text_url_secondary: Optional[str] = Field(
-        default=None,
-        description="Optional second fallback text URL from legalActText."
-    )
-
-    ris_stammfassung: Optional[str] = Field(
-        default=None,
-        description="AT-specific RIS Stammfassung reference (StF), e.g. 'BGBl. I Nr. 53/1997'."
-    )
-    
     title: Optional[str] = Field(
         default=None,
         description="Title of the legal act (full title)"
@@ -125,11 +115,6 @@ class LegalAct(BaseModel):
         description="Whether the legal act is in force"
     )
     
-    is_consolidated_act: bool = Field(
-        default=False,
-        description="Whether this act is a consolidated version (e.g., BJNR acts, EU sector-0 CELEX)"
-    )
-    
     type: Optional[LegalActType] = Field(
         default=None,
         description="Type of the legal act in English. Only predefined types are allowed."
@@ -159,49 +144,16 @@ class LegalAct(BaseModel):
         description="Date of the validity of the legal act (ISO format: YYYY-MM-DD)."
     )
     
-    eurovoc: Optional[List[str]] = Field(
-        default=None,
-        description="EuroVoc descriptors as list of labels for Airtable Multiselect (EU only)"
-    )
-    
-    eurlex_types: Optional[List[str]] = Field(
-        default=None,
-        description="All types from EUR-Lex API (from WORK/TYPE fields). Multiselect field in Airtable."
-    )
-    
-    eli_type: Optional[str] = Field(
-        default=None,
-        description="ELI type from extraction (e.g., 'reg', 'reg_impl', 'dec_impl', 'dir_del'). Single-select field in Airtable."
-    )
-    
     publication_date: Optional[str] = Field(
         default=None,
         description="Date when the document was published in the Official Journal (ISO format: YYYY-MM-DD). "
         "This can differ significantly from the enactment/document date."
-    )
-    
-    gii_slug: Optional[str] = Field(
-        default=None,
-        description="GII (Gesetze im Internet) slug for German legal acts (e.g., 'bimschg', 'elektrog_2015'). "
-        "Used for BJNR ↔ Slug mapping. Only applicable for jurisdiction='de'."
     )
 
     entity_type: Optional[Literal["legal_act", "consolidated_act"]] = Field(
         default="legal_act",
         description="Distinguishes regular legal acts from consolidated versions. "
         "Set to 'consolidated_act' when saving a consolidated version of a legal act."
-    )
-
-    consolidated_date: Optional[str] = Field(
-        default=None,
-        description="Stand/version date for consolidated acts (ISO format: YYYY-MM-DD). "
-        "Only relevant when entity_type='consolidated_act'."
-    )
-
-    consolidated_act_status: Optional[Literal["pending", "extracting", "extracted", "published"]] = Field(
-        default=None,
-        description="Processing status for consolidated acts. "
-        "Only relevant when entity_type='consolidated_act'."
     )
 
 
