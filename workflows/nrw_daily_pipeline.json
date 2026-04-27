@@ -142,7 +142,6 @@
       "waitBetweenTries": 5000,
       "credentials": {
         "googlePalmApi": {
-          "id": "xj3d4VdRweSxyQ7I",
           "name": "Google Gemini(PaLM) Api account"
         }
       }
