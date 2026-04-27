@@ -90,7 +90,7 @@ return [{
 }];"""
 
 # Kein GENERATE_SUMMARY-Code-Node mehr: Summary-Generierung laeuft jetzt ueber
-# den nativen n8n HTTP-Request-Node mit Anthropic-Credential (community edition).
+# den nativen n8n HTTP-Request-Node mit Google-Gemini-Credential (googlePalmApi).
 # Dieser Code-Node laeuft NACH dem HTTP-Request-Node und liest die Antwort aus.
 EXTRACT_SUMMARY = r"""// $json = Gemini API Response
 // Ursprungsdaten aus dem Fetch-Node per Item-Pairing wiederherstellen

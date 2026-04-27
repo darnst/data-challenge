@@ -87,7 +87,10 @@ Beispiel (`schemas/enriched_legal_act.schema.json`):
 
 ### Idempotenz (Daily-Workflow)
 
-Der Daily-Workflow ist idempotent: Mehrfaches Ausloesen am selben Tag erzeugt keine doppelten Dokumente.
+Der Daily-Workflow ist idempotent auf Ebene der Quelldaten: Mehrfaches Ausloesen am selben Tag
+fetcht und verarbeitet dieselben Dokumente erneut, erzeugt aber keine doppelten Eintraege —
+**vorausgesetzt**, das Downstream-System fuehrt Upserts per `document_id` durch.
+Ohne Upsert-Logik entsteht pro Lauf eine neue `daily_*_test.json` mit denselben Dokumenten.
 
 - **Mechanismus:** `results/checkpoint.json` speichert `lastRun` (ISO-Datum). Beim naechsten Lauf werden
   nur Sitemaps-Eintraege verarbeitet, deren `lastmod ≥ lastRun - 2 Tage`.
@@ -219,6 +222,8 @@ make check          # validiert sample_records.json + alle backfill_*.json / dai
 - Run-Report-Pflichtfelder vorhanden
 
 Beispielformat: `results/sample_records.json`, `results/run_report_example.json`.
+
+> **Reelle n8n-Testläufe im Repo:** Die Dateien `backfill_2026-04-27T17-38-00_test.json` (10 Einträge, Backfill auf max. 10 begrenzt) und `run_report_*_test.json` (Daily-Lauf mit Checkpoint 2026-04-05) sind tatsächliche Ausführungen der importierten n8n-Workflows, keine synthetischen Beispiele.
 
 ### 6. Vor Abgabe
 - Workflows in n8n ggf. anpassen und als JSON re-exportieren

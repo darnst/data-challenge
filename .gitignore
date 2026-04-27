@@ -11,4 +11,7 @@ __pycache__/
 results/*.tmp.json
 results/checkpoint.json
 results/daily_*.json
+results/backfill_*.json
 results/_acc_*.ndjson
+# Testlauf-Evidenz (n8n-Runs mit _test-Suffix bleiben committet)
+!results/*_test.json
