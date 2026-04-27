@@ -185,6 +185,28 @@ In n8n: **Workflows → Import from File** — alle drei Dateien importieren:
 > - Beide Alerts enthalten `workflow`, `runId`/`executionId`, `errorMessage` und betroffenen Node.
 > - Ohne `ALERT_WEBHOOK_URL` werden Fehler nur in den n8n-Execution-Logs sichtbar.
 
+#### Checkpoint beim ersten Lauf und zum Testen
+
+`results/checkpoint.json` wird vom Workflow selbst angelegt und ist in `.gitignore` — liegt also nicht im Repo.
+
+**Kein Checkpoint vorhanden (Erstlauf):** Der Daily-Workflow faellt auf *gestern* zurueck. Mit dem eingebauten 2-Tage-Puffer werden alle Gesetze verarbeitet, deren `lastmod ≥ heute − 3 Tage`.
+
+**Checkpoint manuell setzen** (um mehr Daten zu holen oder den Workflow zu testen):
+```bash
+mkdir -p ~/.n8n/nrw-results
+echo '{"lastRun":"2026-01-01"}' > ~/.n8n/nrw-results/checkpoint.json
+```
+Beim naechsten Lauf verarbeitet der Workflow dann alle Gesetze mit `lastmod ≥ 2025-12-30` (2 Tage Puffer).
+
+**Checkpoint zuruecksetzen** (Re-Run ab bestimmtem Datum oder kompletter Neulauf):
+```bash
+rm ~/.n8n/nrw-results/checkpoint.json   # Fallback auf gestern
+# oder
+echo '{"lastRun":"2025-01-01"}' > ~/.n8n/nrw-results/checkpoint.json
+```
+
+> Wenn `RESULTS_DIR` als n8n Variable gesetzt ist, liegt der Checkpoint in diesem Verzeichnis statt in `~/.n8n/nrw-results`.
+
 ### 5. Ergebnis pruefen
 ```bash
 make check          # validiert sample_records.json + alle backfill_*.json / daily_*.json
