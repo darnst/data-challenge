@@ -632,28 +632,36 @@ def if_node(id_, name, pos, condition):
     })
 
 def gemini_http_node(id_, name, pos):
-    """HTTP-Request-Node der Gemini Flash ueber das native Google-Gemini-Credential aufruft.
-    Credential-Typ: 'googleGeminiApi' (Settings → Credentials → New → Google Gemini API).
-    Der Body wird als einzelner n8n-Ausdruck gebaut, damit Titel und Text dynamisch
-    aus dem eingehenden Item gelesen werden."""
+    """HTTP-Request-Node fuer Gemini 2.5 Flash via googlePalmApi-Credential.
+    Prompt: 3-Satz-Zusammenfassung (Gegenstand, Adressaten, Rechtsfolgen).
+    Nach Import Credential im Node manuell verknuepfen."""
     body_expr = (
-        "={{ JSON.stringify({"
-        "system_instruction: {parts: [{text: 'Du bist ein juristischer Assistent fuer NRW-Landesrecht."
-        " Schreibe GENAU 2 Saetze (nicht mehr): Was regelt dieses Dokument,"
-        " und fuer wen gilt es?"
-        " Antworte ausschliesslich auf Deutsch, ohne Einleitung.'}]},"
-        "contents: [{parts: [{text:"
-        " 'Titel: ' + ($json.title || '') +"
-        " '\\n\\nText:\\n' +"
-        " ($json.textContent || '').slice(0, 1000)}]}],"
-        "generationConfig: {maxOutputTokens: 300, temperature: 0.3}"
-        "}) }}"
+        '={{ {\n'
+        '  "system_instruction": {\n'
+        '    "parts": [{ "text": "Du bist ein juristischer Assistent zur Datenextraktion.'
+        ' Fasse den Text in GENAU 3 vollständigen, inhaltlich dichten Sätzen zusammen.'
+        ' Satz 1: Was wird geregelt (Gegenstand und Zweck)?'
+        ' Satz 2: Für wen gilt es (Beteiligte, Adressaten, Geltungsbereich)?'
+        ' Satz 3: Welche konkreten Rechtsfolgen oder Maßnahmen werden festgelegt?'
+        ' Jeder Satz muss mindestens 20 Wörter lang sein.'
+        ' Antworte AUSSCHLIESSLICH mit dem unformatierten, reinen Text der Zusammenfassung.'
+        ' Verwende KEIN JSON, KEIN Markdown und KEINE Einleitungsfloskeln." }]\n'
+        '  },\n'
+        '  "contents": [{\n'
+        '    "parts": [{ "text": "Titel: " + ($json.title || "Kein Titel") +'
+        ' "\\n\\nText:\\n" + ($json.textContent || "Kein Text vorhanden").slice(0, 3000) }]\n'
+        '  }],\n'
+        '  "generationConfig": {\n'
+        '    "maxOutputTokens": 2500,\n'
+        '    "temperature": 0.1\n'
+        '  }\n'
+        '} }}'
     )
-    return node(id_, name, "n8n-nodes-base.httpRequest", 4.2, pos, {
+    n = node(id_, name, "n8n-nodes-base.httpRequest", 4.2, pos, {
         "method": "POST",
-        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
         "authentication": "predefinedCredentialType",
-        "nodeCredentialType": "googleGeminiApi",
+        "nodeCredentialType": "googlePalmApi",
         "sendHeaders": True,
         "headerParameters": {"parameters": []},
         "sendBody": True,
@@ -662,12 +670,17 @@ def gemini_http_node(id_, name, pos):
         "body": body_expr,
         "options": {}
     })
+    n["retryOnFail"] = True
+    n["maxTries"] = 5
+    n["waitBetweenTries"] = 5000
+    n["credentials"] = {"googlePalmApi": {"name": "Google Gemini(PaLM) Api account"}}
+    return n
 
 
 # Enrich-Abschnitt (Backfill):
 #   Fetch & Parse → Should Enrich? (IF)
-#     TRUE  → Call Claude (HTTP Request, anthropicApi Credential) → Extract Summary (Code)
-#     FALSE → direkt zu Build EnrichedDocument (summary bleibt undefiniert → null)
+#     TRUE  → Call Gemini (HTTP Request, googlePalmApi Credential) → Extract Summary (Code)
+#     FALSE → direkt zu Build EnrichedDocument (summary bleibt null)
 # Beide Pfade landen in Build EnrichedDocument.
 BACKFILL = {
     "name": "nrw_backfill",

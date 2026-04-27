@@ -3,52 +3,53 @@
   "nodes": [
     {
       "parameters": {},
-      "id": "51ae66e1-5de3-4b96-a99a-65ce38304ae1",
+      "id": "bf000001-0000-0000-0000-000000000001",
       "name": "Start",
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
       "position": [
-        -3200,
-        736
+        180,
+        400
       ]
     },
     {
       "parameters": {
         "jsCode": "const fs = require('fs');\nconst BASE = 'https://recht.nrw.de';\nconst DELAY_MS = 600;\nconst today = new Date().toISOString().split('T')[0];\nconst path = require('path');\nconst resultsDir = $vars.RESULTS_DIR || path.join(require('os').homedir(), '.n8n', 'nrw-results');\nif (!fs.existsSync(resultsDir)) fs.mkdirSync(resultsDir, { recursive: true });\n\n// Clean up orphaned accumulator files from aborted previous runs (older than 24h)\ntry {\n  const cutoff = Date.now() - 24 * 60 * 60 * 1000;\n  for (const f of fs.readdirSync(resultsDir).filter(f => f.startsWith('_acc_') && f.endsWith('.ndjson'))) {\n    const fp = `${resultsDir}/${f}`;\n    if (fs.statSync(fp).mtimeMs < cutoff) { fs.unlinkSync(fp); console.log(`Removed orphaned: ${f}`); }\n  }\n} catch (e) {}\n\n// Resume checkpoint: skip already-processed slugs\nconst progressFile = `${resultsDir}/backfill_progress.txt`;\nlet processedSlugs = new Set();\nif (fs.existsSync(progressFile)) {\n  try {\n    processedSlugs = new Set(fs.readFileSync(progressFile, 'utf8').split('\\n').filter(Boolean));\n    console.log(`Resuming backfill: ${processedSlugs.size} slugs already done`);\n  } catch (e) {}\n}\n\nconst ndjsonPath = `${resultsDir}/_backfill_active.ndjson`;\n// Fresh start: remove stale accumulator if no resume checkpoint exists\nif (!fs.existsSync(progressFile) && fs.existsSync(ndjsonPath)) {\n  fs.unlinkSync(ndjsonPath);\n  console.log('Removed stale backfill accumulator (fresh start)');\n}\n\n// Dynamically count sitemaps from index sitemap\nlet TOTAL = 47;\ntry {\n  const indexRaw = await this.helpers.httpRequest({ method: 'GET', url: `${BASE}/sitemap.xml` });\n  const indexXml = typeof indexRaw === 'string' ? indexRaw : Buffer.isBuffer(indexRaw) ? indexRaw.toString('utf8') : '';\n  const m = indexXml.match(/<sitemap>/g);\n  if (m) TOTAL = m.length;\n} catch (e) {\n  console.log(`Sitemap index fetch failed, using default ${TOTAL}: ${e.message}`);\n}\nconsole.log(`Fetching ${TOTAL} sitemaps`);\n\nconst bySlug = {};\nlet failedSitemaps = 0;\nfor (let i = 1; i <= TOTAL; i++) {\n  const sUrl = `${BASE}/sitemap/page/${i}/sitemap.xml`;\n  let xml = '';\n  try {\n    const raw = await this.helpers.httpRequest({ method: 'GET', url: sUrl });\n    xml = typeof raw === 'string' ? raw : Buffer.isBuffer(raw) ? raw.toString('utf8') : '';\n  } catch (e) {\n    console.log(`Sitemap ${i} failed: ${e.message}`);\n    failedSitemaps++;\n    continue;\n  }\n\n  const blockRe = /<url>([\\s\\S]*?)<\\/url>/g;\n  let blk;\n  while ((blk = blockRe.exec(xml)) !== null) {\n    const locM = blk[1].match(/<loc>([^<]+)<\\/loc>/);\n    const lmodM = blk[1].match(/<lastmod>([^<]+)<\\/lastmod>/);\n    if (!locM) continue;\n    const loc = locM[1].trim();\n    if (!loc.includes('/lrgv/')) continue;\n    const m = loc.match(/\\/lrgv\\/([^\\/]+)\\/(\\d{8})-([^\\/]+)\\/?$/);\n    if (!m) continue;\n    const [, docType, dateStr, slug] = m;\n    // URL date format is DDMMYYYY\n    const entryDate = `${dateStr.slice(4,8)}-${dateStr.slice(2,4)}-${dateStr.slice(0,2)}`;\n    if (entryDate > today) continue;\n    if (processedSlugs.has(slug)) continue;\n    if (!bySlug[slug] || bySlug[slug].entryDate < entryDate) {\n      bySlug[slug] = { url: loc, lastmod: lmodM ? lmodM[1].trim() : null, docType, dateStr, entryDate, slug, documentId: slug };\n    }\n  }\n  if (i < TOTAL) await new Promise(r => setTimeout(r, DELAY_MS));\n}\n\nif (failedSitemaps > TOTAL / 2) {\n  throw new Error(`Sitemap fetch mostly failed: ${failedSitemaps}/${TOTAL} sitemaps unreachable — aborting backfill`);\n}\nconst laws = Object.values(bySlug);\nconsole.log(`Found ${laws.length} unique NRW laws (${processedSlugs.size} skipped from prior run)`);\nreturn laws.map(l => ({ json: l }));"
       },
-      "id": "7cb9b68c-1254-4440-a34b-88561b81b473",
+      "id": "bf000001-0000-0000-0000-000000000002",
       "name": "Fetch All Sitemap URLs",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -2960,
-        736
+        420,
+        400
       ]
     },
     {
       "parameters": {
+        "batchSize": 1,
         "options": {}
       },
-      "id": "585e645c-b3a4-43eb-8b13-ab7d2ebc8a33",
+      "id": "bf000001-0000-0000-0000-000000000003",
       "name": "Loop: Process Laws",
       "type": "n8n-nodes-base.splitInBatches",
       "typeVersion": 3,
       "position": [
-        -2688,
-        736
+        660,
+        400
       ]
     },
     {
       "parameters": {
         "jsCode": "const { url, docType, entryDate, slug, documentId } = $input.item.json;\n\n// Retry fetch with exponential backoff; treat 4xx as permanent error\nlet html = '';\nlet fetchError = null;\nlet errorType = null;\nfor (let attempt = 1; attempt <= 3; attempt++) {\n  try {\n    const raw = await this.helpers.httpRequest({ method: 'GET', url, timeout: 30000 });\n    html = typeof raw === 'string' ? raw : Buffer.isBuffer(raw) ? raw.toString('utf8') : '';\n    break;\n  } catch (e) {\n    fetchError = e;\n    const status = e.response?.status;\n    const isPermanent = status && status >= 400 && status < 500;\n    errorType = isPermanent ? 'permanent' : 'transient';\n    if (isPermanent || attempt === 3) break;\n    await new Promise(r => setTimeout(r, 1000 * Math.pow(2, attempt - 1)));\n  }\n}\nif (fetchError) {\n  return [{ json: { _fetchError: fetchError.message, _errorType: errorType, documentId, url, docType, entryDate, slug } }];\n}\nawait new Promise(r => setTimeout(r, 1200));\n\n// Skip abrogated laws — CSS class only; freetext \"aufgehoben\" has false positives in amendment laws\nif (/<[^>]+class=\"[^\"]*aufgehoben[^\"]*\"[^>]*>/i.test(html)) {\n  console.log(`Skipping abrogated: ${slug}`);\n  return [{ json: { _abrogated: true, documentId, url, docType, entryDate, slug } }];\n}\n\nconst strip = s => s.replace(/<[^>]+>/g, '').replace(/\\s+/g, ' ').trim();\n\nconst titleM = html.match(/<h1[^>]*>([\\s\\S]*?)<\\/h1>/i);\nconst title = titleM ? strip(titleM[1]) : null;\n\nlet abbreviation = null;\nconst abbrM = html.match(/<dt[^>]*>\\s*Abk.rzung\\s*<\\/dt>\\s*<dd[^>]*>([^<]{1,60})<\\/dd>/i)\n           || html.match(/Abk.rzung[^<]*<[^>]+>([A-ZÄÖÜ][^<]{1,50})</i);\nif (abbrM) abbreviation = abbrM[1].trim();\n\nlet enactmentDate = null;\nconst enactM = html.match(/<dt[^>]*>\\s*Ausfertigungsdatum\\s*<\\/dt>\\s*<dd[^>]*>\\s*(\\d{2}\\.\\d{2}\\.\\d{4})/i)\n            || html.match(/Ausfertigungsdatum[\\s\\S]{0,200}?(\\d{2}\\.\\d{2}\\.\\d{4})/i);\nif (enactM) {\n  const [d, mo, y] = enactM[1].split('.');\n  enactmentDate = `${y}-${mo}-${d}`;\n}\n\nlet lastAmendmentDate = null;\nconst amendM = html.match(/zuletzt\\s+ge[äa]ndert[\\s\\S]{0,300}?(\\d{2}\\.\\d{2}\\.\\d{4})/i)\n            || html.match(/[Ll]etzte\\s+[Ää]nderung[\\s\\S]{0,200}?(\\d{2}\\.\\d{2}\\.\\d{4})/i);\nif (amendM) {\n  const [d, mo, y] = amendM[1].split('.');\n  lastAmendmentDate = `${y}-${mo}-${d}`;\n}\n\n// Publication date from GV-Fundstelle (e.g. \"GV. NRW. 2025 S. 1068 vom 15.08.2025\")\nlet publicationDate = null;\nconst fundM = html.match(/Fundstelle[\\s\\S]{0,300}?(\\d{2}\\.\\d{2}\\.\\d{4})/i);\nif (fundM) {\n  const [d, mo, y] = fundM[1].split('.');\n  publicationDate = `${y}-${mo}-${d}`;\n}\n\nconst typeMap = { gesetz: 'law', rechtsverordnung: 'regulation', bekanntmachung: 'announcement' };\n\nconst bodyM = html.match(/<main[^>]*>([\\s\\S]*?)<\\/main>/i)\n           || html.match(/<article[^>]*>([\\s\\S]*?)<\\/article>/i);\nconst textContent = bodyM ? strip(bodyM[1]).slice(0, 2500) : strip(html).slice(0, 2500);\n\nreturn [{\n  json: {\n    documentId, slug, docType, url, entryDate,\n    title, abbreviation, enactmentDate, lastAmendmentDate, publicationDate,\n    legalType: typeMap[docType] || 'law',\n    textContent\n  }\n}];"
       },
-      "id": "48e0ac79-9a3e-4e4f-8ebf-afcf55e5a73c",
+      "id": "bf000001-0000-0000-0000-000000000004",
       "name": "Fetch & Parse Law Page",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -2448,
-        576
+        900,
+        240
       ]
     },
     {
@@ -62,13 +63,13 @@
           ]
         }
       },
-      "id": "2dfd6c98-a99d-43ee-93e4-9d4609dc4eba",
+      "id": "bf000001-0000-0000-0000-000000000009",
       "name": "Should Enrich?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 1,
       "position": [
-        -2208,
-        576
+        1140,
+        240
       ]
     },
     {
@@ -87,13 +88,13 @@
         "body": "={{ {\n  \"system_instruction\": {\n    \"parts\": [{ \"text\": \"Du bist ein juristischer Assistent zur Datenextraktion. Fasse den Text in GENAU 3 vollständigen, inhaltlich dichten Sätzen zusammen. Satz 1: Was wird geregelt (Gegenstand und Zweck)? Satz 2: Für wen gilt es (Beteiligte, Adressaten, Geltungsbereich)? Satz 3: Welche konkreten Rechtsfolgen oder Maßnahmen werden festgelegt? Jeder Satz muss mindestens 20 Wörter lang sein. Antworte AUSSCHLIESSLICH mit dem unformatierten, reinen Text der Zusammenfassung. Verwende KEIN JSON, KEIN Markdown und KEINE Einleitungsfloskeln.\" }]\n  },\n  \"contents\": [{\n    \"parts\": [{ \"text\": \"Titel: \" + ($json.title || \"Kein Titel\") + \"\\n\\nText:\\n\" + ($json.textContent || \"Kein Text vorhanden\").slice(0, 3000) }]\n  }],\n  \"generationConfig\": {\n    \"maxOutputTokens\": 2500,\n    \"temperature\": 0.1\n  }\n} }}",
         "options": {}
       },
-      "id": "046983b6-c4d4-4583-aed5-fcf8b535cad6",
+      "id": "bf000001-0000-0000-0000-000000000010",
       "name": "Call Gemini",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        -1968,
-        416
+        1380,
+        80
       ],
       "retryOnFail": true,
       "maxTries": 5,
@@ -108,56 +109,56 @@
       "parameters": {
         "jsCode": "// $json = Gemini API Response\n// Ursprungsdaten aus dem Fetch-Node per Item-Pairing wiederherstellen\nconst law = $('Fetch & Parse Law Page').item.json;\nconst summary = $json?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || null;\nreturn [{ json: { ...law, summary } }];"
       },
-      "id": "23eff4a3-33c4-4579-accc-7ec53bc8e54e",
+      "id": "bf000001-0000-0000-0000-000000000011",
       "name": "Extract Summary",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -1728,
-        416
+        1620,
+        80
       ]
     },
     {
       "parameters": {
         "jsCode": "const fs = require('fs');\n\nconst item = $input.item.json;\nconst path = require('path');\nconst resultsDir = $vars.RESULTS_DIR || path.join(require('os').homedir(), '.n8n', 'nrw-results');\nif (!fs.existsSync(resultsDir)) fs.mkdirSync(resultsDir, { recursive: true });\nconst ndjsonPath = `${resultsDir}/_backfill_active.ndjson`;\nconst progressFile = `${resultsDir}/backfill_progress.txt`;\n\n// Write error record to NDJSON so it is counted in the final report\nif (item._fetchError || item._abrogated) {\n  const reason = item._abrogated ? 'abrogated'\n    : (item._errorType === 'permanent' ? 'http_error_permanent' : 'http_error_transient');\n  fs.appendFileSync(ndjsonPath, JSON.stringify({ _error: true, documentId: item.documentId, reason, message: item._fetchError || 'abrogated' }) + '\\n', 'utf8');\n  fs.appendFileSync(progressFile, item.documentId + '\\n', 'utf8');\n  return [{ json: { _skipped: true, documentId: item.documentId, reason } }];\n}\n\nconst legalAct = {\n  document_id: item.documentId,\n  jurisdiction: 'de_nw',\n  entity_type: 'legal_act',\n  is_in_force: true,\n  language: 'de',\n  url: item.url || null,\n  canonical_source_url: item.url || null,\n  fallback_text_url: null,\n  title: item.title || null,\n  title_short: item.abbreviation || null,\n  abbreviation: item.abbreviation || null,\n  type: item.legalType || null,\n  summary: item.summary || null,\n  entry_into_force_date: item.entryDate || null,\n  enactment_date: item.enactmentDate || null,\n  last_amendment_date: item.lastAmendmentDate || null,\n  validity_date: null,\n  publication_date: item.publicationDate || null\n};\n\nconst enrichedDoc = { legal_act: legalAct, legal_act_relations: [] };\nfs.appendFileSync(ndjsonPath, JSON.stringify(enrichedDoc) + '\\n', 'utf8');\n\n// Update resume checkpoint (append-only: O(1) per document)\nfs.appendFileSync(progressFile, item.documentId + '\\n', 'utf8');\n\nreturn [{ json: { _ok: true, documentId: item.documentId } }];"
       },
-      "id": "b1b474f1-fee0-4019-b365-cad864b3ed2f",
+      "id": "bf000001-0000-0000-0000-000000000006",
       "name": "Build EnrichedDocument",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -1488,
-        576
+        1860,
+        240
       ]
     },
     {
       "parameters": {
-        "jsCode": "const fs = require('fs');\n\nconst path = require('path');\nconst resultsDir = $vars.RESULTS_DIR || path.join(require('os').homedir(), '.n8n', 'nrw-results');\nconst ndjsonPath = `${resultsDir}/_backfill_active.ndjson`;\n\nlet documents = [];\nlet fetchErrors = 0;\nlet parseErrors = 0;\nlet enrichedCount = 0;\nconst errorReasonMap = {};\n\nif (fs.existsSync(ndjsonPath)) {\n  const lines = fs.readFileSync(ndjsonPath, 'utf8').split('\\n').filter(l => l.trim());\n  for (const line of lines) {\n    try {\n      const rec = JSON.parse(line);\n      if (rec._error) {\n        fetchErrors++;\n        errorReasonMap[rec.reason] = (errorReasonMap[rec.reason] || 0) + 1;\n      } else {\n        documents.push(rec);\n        if (rec.legal_act?.summary) enrichedCount++;\n      }\n    } catch (e) {\n      parseErrors++;\n    }\n  }\n  fs.unlinkSync(ndjsonPath);\n}\n\n// Delete progress file on successful completion\nconst progressFile = `${resultsDir}/backfill_progress.txt`;\nif (fs.existsSync(progressFile)) fs.unlinkSync(progressFile);\n\nconst ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);\nconst outFile = `${resultsDir}/backfill_${ts}.json`;\nfs.writeFileSync(outFile, JSON.stringify(documents, null, 2), 'utf8');\n\nconst totalErrors = fetchErrors + parseErrors;\nif (parseErrors > 0) errorReasonMap['parse_error'] = (errorReasonMap['parse_error'] || 0) + parseErrors;\nconst topErrorReasons = Object.entries(errorReasonMap)\n  .map(([reason, count]) => ({ reason, count }))\n  .sort((a, b) => b.count - a.count);\n\nconst report = {\n  runId: `backfill_${ts}`,\n  mode: 'backfill',\n  fetched: documents.length + totalErrors,\n  extracted: documents.length,\n  enriched: enrichedCount,\n  newDocuments: documents.length,\n  updatedDocuments: 0,\n  errors: totalErrors,\n  topErrorReasons\n};\n\nconst reportFile = `${resultsDir}/run_report_${ts}.json`;\nfs.writeFileSync(reportFile, JSON.stringify(report, null, 2), 'utf8');\n\nconsole.log(`Backfill complete: ${documents.length} docs, ${totalErrors} errors → ${outFile}`);\nreturn [{ json: report }];"
+        "jsCode": "const fs = require('fs');\n\nconst path = require('path');\nconst resultsDir = $vars.RESULTS_DIR || path.join(require('os').homedir(), '.n8n', 'nrw-results');\nconst ndjsonPath = `${resultsDir}/_backfill_active.ndjson`;\n\nlet documents = [];\nlet fetchErrors = 0;\nlet parseErrors = 0;\nlet enrichedCount = 0;\nconst errorReasonMap = {};\n\nif (fs.existsSync(ndjsonPath)) {\n  const lines = fs.readFileSync(ndjsonPath, 'utf8').split('\\n').filter(l => l.trim());\n  for (const line of lines) {\n    try {\n      const rec = JSON.parse(line);\n      if (rec._error) {\n        fetchErrors++;\n        errorReasonMap[rec.reason] = (errorReasonMap[rec.reason] || 0) + 1;\n      } else {\n        documents.push(rec);\n        if (rec.legal_act?.summary) enrichedCount++;\n      }\n    } catch (e) {\n      parseErrors++;\n    }\n  }\n  fs.unlinkSync(ndjsonPath);\n}\n\n// Delete progress file on successful completion\nconst progressFile = `${resultsDir}/backfill_progress.txt`;\nif (fs.existsSync(progressFile)) fs.unlinkSync(progressFile);\n\nconst ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);\nconst outFile = `${resultsDir}/backfill_${ts}.json`;\nfs.writeFileSync(outFile, JSON.stringify(documents, null, 2), 'utf8');\n\nconst totalErrors = fetchErrors + parseErrors;\nif (parseErrors > 0) errorReasonMap['parse_error'] = (errorReasonMap['parse_error'] || 0) + parseErrors;\nconst topErrorReasons = Object.entries(errorReasonMap)\n  .map(([reason, count]) => ({ reason, count }))\n  .sort((a, b) => b.count - a.count);\n\nconst report = {\n  runId: `backfill_${ts}`,\n  mode: 'backfill',\n  fetched: documents.length + totalErrors,\n  extracted: documents.length,\n  enriched: enrichedCount,\n  newDocuments: documents.length,\n  updatedDocuments: 0,\n  errors: totalErrors,\n  topErrorReasons\n};\n\nconst reportFile = `${resultsDir}/run_report_${ts}.json`;\nfs.writeFileSync(reportFile, JSON.stringify(report, null, 2), 'utf8');\n\nconsole.log(`Backfill complete: ${documents.length} docs, ${totalErrors} errors → ${outFile}`);\nreturn [{ json: report }];",
+        "mode": "runOnceForAllItems"
       },
-      "id": "82a330e3-77be-4e06-9f73-dd5da15e9188",
+      "id": "bf000001-0000-0000-0000-000000000007",
       "name": "Compile & Save Results",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -2448,
-        928
+        900,
+        580
       ]
     },
     {
       "parameters": {
         "jsCode": "const report = $input.item.json;\nconst errorRate = report.fetched > 0 ? report.errors / report.fetched : 0;\nconst webhookUrl = $vars.ALERT_WEBHOOK_URL || null;\n\nif (errorRate > 0.1) {\n  const msg = `[nrw_backfill] High error rate: ${(errorRate * 100).toFixed(1)}% (${report.errors}/${report.fetched}) runId=${report.runId}`;\n  console.warn(msg);\n  if (webhookUrl) {\n    try {\n      await this.helpers.httpRequest({\n        method: 'POST',\n        url: webhookUrl,\n        headers: { 'Content-Type': 'application/json' },\n        body: JSON.stringify({ alert: 'high_error_rate', workflow: 'nrw_backfill', errorRate: (errorRate * 100).toFixed(1) + '%', errors: report.errors, fetched: report.fetched, runId: report.runId })\n      });\n    } catch (e) {\n      console.log(`Alert webhook failed: ${e.message}`);\n    }\n  }\n}\nreturn [$input.item];"
       },
-      "id": "81c0e88d-cda6-4b8b-913d-121498e1972d",
+      "id": "bf000001-0000-0000-0000-000000000008",
       "name": "Send Alert",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -2208,
-        928
+        1140,
+        580
       ]
     }
   ],
-  "pinData": {},
   "connections": {
     "Start": {
       "main": [
@@ -276,13 +277,11 @@
   "active": false,
   "settings": {
     "executionOrder": "v1",
-    "binaryMode": "separate"
+    "errorWorkflow": "nrw-error-reporter"
   },
-  "versionId": "6ae52bfe-1025-48a4-8684-f4ee96a130f7",
+  "versionId": "00000000-0000-0000-0000-000000000001",
   "meta": {
-    "templateCredsSetupCompleted": true,
-    "instanceId": "7c59d92c147f2480fe1cdd805b134c46ff05380bd03d55108bd4655c321177ed"
+    "templateCredsSetupCompleted": false
   },
-  "id": "tzkT4qNBtCKw9l3q",
-  "tags": []
+  "id": "nrw-backfill"
 }
