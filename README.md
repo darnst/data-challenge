@@ -175,9 +175,9 @@ In n8n: **Workflows → Import from File** — alle drei Dateien importieren:
 
 | Datei | Beschreibung | Nach Import |
 |---|---|---|
-| `workflows/nrw_error_reporter.json` | **Zuerst importieren.** Fängt unerwartete Workflow-Abbrüche ab und sendet Crash-Alert an `ALERT_WEBHOOK_URL`. | Wird automatisch aktiviert (`active: true`). |
-| `workflows/nrw_backfill.json` | Einmaliger Vollimport aller NRW-Gesetze. | Workflow-Settings öffnen → **"Error Workflow"** → `nrw_error_reporter` auswaehlen. Danach manuell starten. |
-| `workflows/nrw_daily_pipeline.json` | Taeglich 06:00 UTC, verarbeitet Aenderungen seit letztem Lauf. | Workflow-Settings öffnen → **"Error Workflow"** → `nrw_error_reporter` auswaehlen. Danach Workflow aktivieren (Toggle oben rechts). |
+| `workflows/nrw_error_reporter.json` | **Zuerst importieren.** Fängt unerwartete Workflow-Abbrüche ab und sendet Crash-Alert an `ALERT_WEBHOOK_URL`. | Wird automatisch aktiviert (`active: true`). Kein weiterer Schritt nötig. |
+| `workflows/nrw_backfill.json` | Einmaliger Vollimport aller NRW-Gesetze. Laufzeit ca. 15–16 h (47.000 Gesetze × 1,2 s Delay). | ① Workflow oeffnen → **⚙ Settings** (oben rechts) → **Error Workflow** → `nrw_error_reporter` auswaehlen → Save. ② Manuell starten (▶ Execute Workflow). |
+| `workflows/nrw_daily_pipeline.json` | Taeglich 06:00 UTC, verarbeitet Aenderungen seit letztem Lauf. | ① Workflow oeffnen → **⚙ Settings** → **Error Workflow** → `nrw_error_reporter` auswaehlen → Save. ② Workflow aktivieren (Toggle **Active** oben rechts). |
 
 > **Monitoring & Alerting:** Zwei Mechanismen greifen ineinander:
 > - **Fehlerquote > 10 %** im selben Lauf: `Send Alert`-Node in Backfill und Daily sendet POST an `ALERT_WEBHOOK_URL`.
@@ -189,6 +189,12 @@ In n8n: **Workflows → Import from File** — alle drei Dateien importieren:
 ```bash
 make check          # validiert sample_records.json + alle backfill_*.json / daily_*.json
 ```
+
+`make check` prueft pro Output-Datei:
+- JSON-Schema-Konformitaet gegen `schemas/enriched_legal_act.schema.json`
+- **Keine doppelten `document_id`s** (Deduplizierung sichtbar)
+- Datumsformat YYYY-MM-DD und Kalendergueltigkeit
+- Run-Report-Pflichtfelder vorhanden
 
 Beispielformat: `results/sample_records.json`, `results/run_report_example.json`.
 

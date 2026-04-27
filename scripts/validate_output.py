@@ -32,6 +32,15 @@ def check_date(value: str, field: str, doc_id: str) -> str | None:
     return None
 
 
+def check_dedup(docs: list[dict]) -> list[str]:
+    """Return list of duplicate document_ids found."""
+    seen: dict[str, int] = {}
+    for doc in docs:
+        doc_id = doc.get("legal_act", {}).get("document_id", "?")
+        seen[doc_id] = seen.get(doc_id, 0) + 1
+    return [f"{doc_id} (×{count})" for doc_id, count in seen.items() if count > 1]
+
+
 def quality_check(docs: list[dict]) -> tuple[list[str], list[str]]:
     """Return (errors, warnings). Errors = hard failures; warnings = quality issues."""
     errors: list[str] = []
@@ -89,19 +98,25 @@ def main():
             continue
 
         docs = json.loads(bf.read_text())
+        duplicates = check_dedup(docs)
         q_errors, q_warnings = quality_check(docs)
 
-        if q_errors:
+        if duplicates:
+            print(f"FAIL {bf.name}: {len(duplicates)} duplicate document_id(s) found — dedup broken!")
+            for d in duplicates[:5]:
+                print(f"  DUP: {d}")
+            all_ok = False
+        elif q_errors:
             print(f"FAIL {bf.name}: {len(docs)} docs, {len(q_errors)} quality error(s)")
             for e in q_errors[:5]:
                 print(f"  ERROR: {e}")
             all_ok = False
         elif q_warnings:
-            print(f"WARN {bf.name}: {len(docs)} docs valid — {len(q_warnings)} warning(s)")
+            print(f"WARN {bf.name}: {len(docs)} docs valid, 0 duplicates — {len(q_warnings)} warning(s)")
             for w in q_warnings[:5]:
                 print(f"  WARN: {w}")
         else:
-            print(f"OK   {bf.name}: {len(docs)} docs, all valid")
+            print(f"OK   {bf.name}: {len(docs)} docs, 0 duplicates, all valid")
 
     # Run report checks
     for rr in sorted(RESULTS_DIR.glob("run_report_*.json")):
