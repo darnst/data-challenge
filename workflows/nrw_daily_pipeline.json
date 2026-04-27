@@ -1,12 +1,359 @@
 {
   "name": "nrw_daily_pipeline",
-  "nodes": [],
-  "connections": {},
-  "active": false,
-  "settings": {},
-  "versionId": "00000000-0000-0000-0000-000000000002",
-  "meta": {
-    "templateCredsSetupCompleted": false
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 6 * * *"
+            }
+          ]
+        }
+      },
+      "id": "bc4e553c-dd4c-46aa-99b2-64fe56ba137e",
+      "name": "Daily 06:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -2640,
+        384
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const fs = require('fs');\n\nconst path = require('path');\nconst resultsDir = $vars.RESULTS_DIR || path.join(require('os').homedir(), '.n8n', 'nrw-results');\nif (!fs.existsSync(resultsDir)) fs.mkdirSync(resultsDir, { recursive: true });\n\n// Clean up orphaned accumulator files from aborted previous runs (older than 24h)\ntry {\n  const cutoff = Date.now() - 24 * 60 * 60 * 1000;\n  for (const f of fs.readdirSync(resultsDir).filter(f => f.startsWith('_acc_') && f.endsWith('.ndjson'))) {\n    const fp = `${resultsDir}/${f}`;\n    if (fs.statSync(fp).mtimeMs < cutoff) { fs.unlinkSync(fp); console.log(`Removed orphaned: ${f}`); }\n  }\n} catch (e) {}\n\nconst checkpointFile = `${resultsDir}/checkpoint.json`;\n\nlet lastRun;\nif (fs.existsSync(checkpointFile)) {\n  try {\n    lastRun = JSON.parse(fs.readFileSync(checkpointFile, 'utf8')).lastRun;\n  } catch (e) {\n    lastRun = null;\n  }\n}\n\nif (!lastRun) {\n  const d = new Date();\n  d.setDate(d.getDate() - 1);\n  lastRun = d.toISOString().split('T')[0];\n}\n\nconsole.log(`Daily pipeline starting. Checkpoint: ${lastRun}`);\nreturn [{ json: { lastRun } }];"
+      },
+      "id": "dcda5746-742f-446b-91ef-f14b4ee5e72e",
+      "name": "Read Checkpoint",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2400,
+        384
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const BASE = 'https://recht.nrw.de';\nconst DELAY_MS = 600;\nconst today = new Date().toISOString().split('T')[0];\n\nconst { lastRun } = $input.item.json;\nconst since = lastRun;\n\n// Dynamically count sitemaps from index sitemap\nlet TOTAL = 47;\ntry {\n  const indexRaw = await this.helpers.httpRequest({ method: 'GET', url: `${BASE}/sitemap.xml` });\n  const indexXml = typeof indexRaw === 'string' ? indexRaw : Buffer.isBuffer(indexRaw) ? indexRaw.toString('utf8') : '';\n  const m = indexXml.match(/<sitemap>/g);\n  if (m) TOTAL = m.length;\n} catch (e) {\n  console.log(`Sitemap index fetch failed, using default ${TOTAL}: ${e.message}`);\n}\n\n// 2-day buffer for clock skew\nconst buffer = new Date(since);\nbuffer.setDate(buffer.getDate() - 2);\nconst sinceWithBuffer = buffer.toISOString().split('T')[0];\n\nconst bySlug = {};\nlet failedSitemaps = 0;\nfor (let i = 1; i <= TOTAL; i++) {\n  const sUrl = `${BASE}/sitemap/page/${i}/sitemap.xml`;\n  let xml = '';\n  try {\n    const raw = await this.helpers.httpRequest({ method: 'GET', url: sUrl });\n    xml = typeof raw === 'string' ? raw : Buffer.isBuffer(raw) ? raw.toString('utf8') : '';\n  } catch (e) {\n    console.log(`Sitemap ${i} failed: ${e.message}`);\n    failedSitemaps++;\n    continue;\n  }\n\n  const blockRe = /<url>([\\s\\S]*?)<\\/url>/g;\n  let blk;\n  while ((blk = blockRe.exec(xml)) !== null) {\n    const locM = blk[1].match(/<loc>([^<]+)<\\/loc>/);\n    const lmodM = blk[1].match(/<lastmod>([^<]+)<\\/lastmod>/);\n    if (!locM) continue;\n    const loc = locM[1].trim();\n    if (!loc.includes('/lrgv/')) continue;\n    const lastmod = lmodM ? lmodM[1].trim().slice(0, 10) : null;\n    if (!lastmod || lastmod < sinceWithBuffer) continue;\n    const m = loc.match(/\\/lrgv\\/([^\\/]+)\\/(\\d{8})-([^\\/]+)\\/?$/);\n    if (!m) continue;\n    const [, docType, dateStr, slug] = m;\n    // URL date format is DDMMYYYY\n    const entryDate = `${dateStr.slice(4,8)}-${dateStr.slice(2,4)}-${dateStr.slice(0,2)}`;\n    if (entryDate > today) continue;\n    if (!bySlug[slug] || bySlug[slug].entryDate < entryDate) {\n      bySlug[slug] = { url: loc, lastmod, docType, dateStr, entryDate, slug, documentId: slug };\n    }\n  }\n\n  if (i < TOTAL) await new Promise(r => setTimeout(r, DELAY_MS));\n}\n\nif (failedSitemaps > TOTAL / 2) {\n  throw new Error(`Sitemap fetch mostly failed: ${failedSitemaps}/${TOTAL} sitemaps unreachable — aborting daily run`);\n}\nconst laws = Object.values(bySlug);\nconsole.log(`Changed since ${since}: ${laws.length} unique laws`);\n\nif (laws.length === 0) {\n  return [{ json: { _noChanges: true } }];\n}\nreturn laws.map(l => ({ json: l }));"
+      },
+      "id": "68f2a730-8ab8-48ae-a3a4-4c449a91ae1e",
+      "name": "Fetch Changed Law URLs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2160,
+        384
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ !$json._noChanges }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "dfa2b2f4-634c-41b2-aa74-bbacd82c8788",
+      "name": "No Changes?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        -1920,
+        384
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "ae35fb7e-1264-4007-9018-13e12f388183",
+      "name": "Loop: Process Laws",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -1680,
+        384
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const { url, docType, entryDate, slug, documentId } = $input.item.json;\n\n// Retry fetch with exponential backoff; treat 4xx as permanent error\nlet html = '';\nlet fetchError = null;\nlet errorType = null;\nfor (let attempt = 1; attempt <= 3; attempt++) {\n  try {\n    const raw = await this.helpers.httpRequest({ method: 'GET', url, timeout: 30000 });\n    html = typeof raw === 'string' ? raw : Buffer.isBuffer(raw) ? raw.toString('utf8') : '';\n    break;\n  } catch (e) {\n    fetchError = e;\n    const status = e.response?.status;\n    const isPermanent = status && status >= 400 && status < 500;\n    errorType = isPermanent ? 'permanent' : 'transient';\n    if (isPermanent || attempt === 3) break;\n    await new Promise(r => setTimeout(r, 1000 * Math.pow(2, attempt - 1)));\n  }\n}\nif (fetchError) {\n  return [{ json: { _fetchError: fetchError.message, _errorType: errorType, documentId, url, docType, entryDate, slug } }];\n}\nawait new Promise(r => setTimeout(r, 1200));\n\n// Skip abrogated laws — CSS class only; freetext \"aufgehoben\" has false positives in amendment laws\nif (/<[^>]+class=\"[^\"]*aufgehoben[^\"]*\"[^>]*>/i.test(html)) {\n  console.log(`Skipping abrogated: ${slug}`);\n  return [{ json: { _abrogated: true, documentId, url, docType, entryDate, slug } }];\n}\n\nconst strip = s => s.replace(/<[^>]+>/g, '').replace(/\\s+/g, ' ').trim();\n\nconst titleM = html.match(/<h1[^>]*>([\\s\\S]*?)<\\/h1>/i);\nconst title = titleM ? strip(titleM[1]) : null;\n\nlet abbreviation = null;\nconst abbrM = html.match(/<dt[^>]*>\\s*Abk.rzung\\s*<\\/dt>\\s*<dd[^>]*>([^<]{1,60})<\\/dd>/i)\n           || html.match(/Abk.rzung[^<]*<[^>]+>([A-ZÄÖÜ][^<]{1,50})</i);\nif (abbrM) abbreviation = abbrM[1].trim();\n\nlet enactmentDate = null;\nconst enactM = html.match(/<dt[^>]*>\\s*Ausfertigungsdatum\\s*<\\/dt>\\s*<dd[^>]*>\\s*(\\d{2}\\.\\d{2}\\.\\d{4})/i)\n            || html.match(/Ausfertigungsdatum[\\s\\S]{0,200}?(\\d{2}\\.\\d{2}\\.\\d{4})/i);\nif (enactM) {\n  const [d, mo, y] = enactM[1].split('.');\n  enactmentDate = `${y}-${mo}-${d}`;\n}\n\nlet lastAmendmentDate = null;\nconst amendM = html.match(/zuletzt\\s+ge[äa]ndert[\\s\\S]{0,300}?(\\d{2}\\.\\d{2}\\.\\d{4})/i)\n            || html.match(/[Ll]etzte\\s+[Ää]nderung[\\s\\S]{0,200}?(\\d{2}\\.\\d{2}\\.\\d{4})/i);\nif (amendM) {\n  const [d, mo, y] = amendM[1].split('.');\n  lastAmendmentDate = `${y}-${mo}-${d}`;\n}\n\n// Publication date from GV-Fundstelle (e.g. \"GV. NRW. 2025 S. 1068 vom 15.08.2025\")\nlet publicationDate = null;\nconst fundM = html.match(/Fundstelle[\\s\\S]{0,300}?(\\d{2}\\.\\d{2}\\.\\d{4})/i);\nif (fundM) {\n  const [d, mo, y] = fundM[1].split('.');\n  publicationDate = `${y}-${mo}-${d}`;\n}\n\nconst typeMap = { gesetz: 'law', rechtsverordnung: 'regulation', bekanntmachung: 'announcement' };\n\nconst bodyM = html.match(/<main[^>]*>([\\s\\S]*?)<\\/main>/i)\n           || html.match(/<article[^>]*>([\\s\\S]*?)<\\/article>/i);\nconst textContent = bodyM ? strip(bodyM[1]).slice(0, 2500) : strip(html).slice(0, 2500);\n\nreturn [{\n  json: {\n    documentId, slug, docType, url, entryDate,\n    title, abbreviation, enactmentDate, lastAmendmentDate, publicationDate,\n    legalType: typeMap[docType] || 'law',\n    textContent\n  }\n}];"
+      },
+      "id": "6b419c65-35d8-4d01-a6a4-bd4319c6ab9a",
+      "name": "Fetch & Parse Law Page",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1440,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ !$json._fetchError && !$json._abrogated && !!$json.textContent }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "84de3710-7f1a-45a8-ae4d-d358f4711676",
+      "name": "Should Enrich?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        -1200,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googlePalmApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": []
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ {\n  \"system_instruction\": {\n    \"parts\": [{ \"text\": \"Du bist ein juristischer Assistent zur Datenextraktion. Fasse den Text in GENAU 3 vollständigen, inhaltlich dichten Sätzen zusammen. Satz 1: Was wird geregelt (Gegenstand und Zweck)? Satz 2: Für wen gilt es (Beteiligte, Adressaten, Geltungsbereich)? Satz 3: Welche konkreten Rechtsfolgen oder Maßnahmen werden festgelegt? Jeder Satz muss mindestens 20 Wörter lang sein. Antworte AUSSCHLIESSLICH mit dem unformatierten, reinen Text der Zusammenfassung. Verwende KEIN JSON, KEIN Markdown und KEINE Einleitungsfloskeln.\" }]\n  },\n  \"contents\": [{\n    \"parts\": [{ \"text\": \"Titel: \" + ($json.title || \"Kein Titel\") + \"\\n\\nText:\\n\" + ($json.textContent || \"Kein Text vorhanden\").slice(0, 3000) }]\n  }],\n  \"generationConfig\": {\n    \"maxOutputTokens\": 2500,\n    \"temperature\": 0.1\n  }\n} }}",
+        "options": {}
+      },
+      "id": "66a38ce6-6fc3-4ba7-a6db-ab1091c0c5dc",
+      "name": "Call Gemini",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -960,
+        64
+      ],
+      "retryOnFail": true,
+      "maxTries": 5,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "googlePalmApi": {
+          "id": "xj3d4VdRweSxyQ7I",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// $json = Gemini API Response\n// Ursprungsdaten aus dem Fetch-Node per Item-Pairing wiederherstellen\nconst law = $('Fetch & Parse Law Page').item.json;\nconst summary = $json?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || null;\nreturn [{ json: { ...law, summary } }];"
+      },
+      "id": "7e58a318-d21c-4d32-8e2a-6deaf70bfa10",
+      "name": "Extract Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -720,
+        64
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const fs = require('fs');\n\nconst item = $input.item.json;\nconst path = require('path');\nconst resultsDir = $vars.RESULTS_DIR || path.join(require('os').homedir(), '.n8n', 'nrw-results');\nif (!fs.existsSync(resultsDir)) fs.mkdirSync(resultsDir, { recursive: true });\nconst runId = ($execution && $execution.id) ? $execution.id : 'daily';\nconst ndjsonPath = `${resultsDir}/_acc_${runId}.ndjson`;\n\nif (item._fetchError || item._abrogated) {\n  const reason = item._abrogated ? 'abrogated'\n    : (item._errorType === 'permanent' ? 'http_error_permanent' : 'http_error_transient');\n  fs.appendFileSync(ndjsonPath, JSON.stringify({ _error: true, documentId: item.documentId, reason, message: item._fetchError || 'abrogated' }) + '\\n', 'utf8');\n  return [{ json: { _skipped: true, documentId: item.documentId, reason } }];\n}\n\nconst legalAct = {\n  document_id: item.documentId,\n  jurisdiction: 'de_nw',\n  entity_type: 'legal_act',\n  is_in_force: true,\n  language: 'de',\n  url: item.url || null,\n  canonical_source_url: item.url || null,\n  fallback_text_url: null,\n  title: item.title || null,\n  title_short: item.abbreviation || null,\n  abbreviation: item.abbreviation || null,\n  type: item.legalType || null,\n  summary: item.summary || null,\n  entry_into_force_date: item.entryDate || null,\n  enactment_date: item.enactmentDate || null,\n  last_amendment_date: item.lastAmendmentDate || null,\n  validity_date: null,\n  publication_date: item.publicationDate || null\n};\n\nconst enrichedDoc = { legal_act: legalAct, legal_act_relations: [] };\nfs.appendFileSync(ndjsonPath, JSON.stringify(enrichedDoc) + '\\n', 'utf8');\n\nreturn [{ json: { _ok: true, documentId: item.documentId } }];"
+      },
+      "id": "b11f294c-c2ee-4898-bcbd-be7a074f2e92",
+      "name": "Build EnrichedDocument",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -480,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const fs = require('fs');\n\nconst path = require('path');\nconst resultsDir = $vars.RESULTS_DIR || path.join(require('os').homedir(), '.n8n', 'nrw-results');\nif (!fs.existsSync(resultsDir)) fs.mkdirSync(resultsDir, { recursive: true });\n\nconst runId = ($execution && $execution.id) ? $execution.id : 'daily';\nconst ndjsonPath = `${resultsDir}/_acc_${runId}.ndjson`;\n\nlet documents = [];\nlet fetchErrors = 0;\nlet parseErrors = 0;\nlet enrichedCount = 0;\nconst errorReasonMap = {};\n\nif (fs.existsSync(ndjsonPath)) {\n  const lines = fs.readFileSync(ndjsonPath, 'utf8').split('\\n').filter(l => l.trim());\n  for (const line of lines) {\n    try {\n      const rec = JSON.parse(line);\n      if (rec._error) {\n        fetchErrors++;\n        errorReasonMap[rec.reason] = (errorReasonMap[rec.reason] || 0) + 1;\n      } else {\n        documents.push(rec);\n        if (rec.legal_act?.summary) enrichedCount++;\n      }\n    } catch (e) {\n      parseErrors++;\n    }\n  }\n  fs.unlinkSync(ndjsonPath);\n}\n\nconst ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);\nconst today = new Date().toISOString().split('T')[0];\nconst outFile = `${resultsDir}/daily_${ts}.json`;\nfs.writeFileSync(outFile, JSON.stringify(documents, null, 2), 'utf8');\n\n// Re-read checkpoint to get lastRun for new-vs-updated heuristic\nconst checkpointFile = `${resultsDir}/checkpoint.json`;\nlet lastRun = null;\nif (fs.existsSync(checkpointFile)) {\n  try { lastRun = JSON.parse(fs.readFileSync(checkpointFile, 'utf8')).lastRun; } catch (e) {}\n}\n// Heuristic: \"new\" = entry_into_force_date >= lastRun. Cannot distinguish first-seen from re-fetched\n// without an external store. A law active since 2010 with a 2026 fassung counts as new.\nconst newDocs = documents.filter(d => lastRun && d.legal_act?.entry_into_force_date >= lastRun).length;\nconst updatedDocs = documents.length - newDocs;\n\nconst totalErrors = fetchErrors + parseErrors;\nif (parseErrors > 0) errorReasonMap['parse_error'] = (errorReasonMap['parse_error'] || 0) + parseErrors;\nconst topErrorReasons = Object.entries(errorReasonMap)\n  .map(([reason, count]) => ({ reason, count }))\n  .sort((a, b) => b.count - a.count);\n\nconst report = {\n  runId: `daily_${ts}`,\n  mode: 'daily',\n  fetched: documents.length + totalErrors,\n  extracted: documents.length,\n  enriched: enrichedCount,\n  newDocuments: newDocs,\n  updatedDocuments: updatedDocs,\n  errors: totalErrors,\n  topErrorReasons\n};\n\nconst reportFile = `${resultsDir}/run_report_${ts}.json`;\nfs.writeFileSync(reportFile, JSON.stringify(report, null, 2), 'utf8');\n\n// Update checkpoint only when error rate is acceptable; skip on catastrophic runs so next run retries\nconst errorRate = (documents.length + totalErrors) > 0 ? totalErrors / (documents.length + totalErrors) : 0;\nif (errorRate < 0.5) {\n  fs.writeFileSync(checkpointFile, JSON.stringify({ lastRun: today }), 'utf8');\n} else {\n  console.warn(`Error rate ${(errorRate * 100).toFixed(1)}% > 50%: checkpoint NOT updated, next run will retry`);\n}\n\nconsole.log(`Daily complete: ${documents.length} docs, ${totalErrors} errors, checkpoint → ${today}`);\nreturn [{ json: report }];"
+      },
+      "id": "978dc335-6a86-499f-a95b-7233def43895",
+      "name": "Save Results & Update Checkpoint",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1440,
+        576
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const report = $input.item.json;\nconst errorRate = report.fetched > 0 ? report.errors / report.fetched : 0;\nconst webhookUrl = $vars.ALERT_WEBHOOK_URL || null;\n\nif (errorRate > 0.1) {\n  const msg = `[nrw_daily] High error rate: ${(errorRate * 100).toFixed(1)}% (${report.errors}/${report.fetched}) runId=${report.runId}`;\n  console.warn(msg);\n  if (webhookUrl) {\n    try {\n      await this.helpers.httpRequest({\n        method: 'POST',\n        url: webhookUrl,\n        headers: { 'Content-Type': 'application/json' },\n        body: JSON.stringify({ alert: 'high_error_rate', workflow: 'nrw_daily', errorRate: (errorRate * 100).toFixed(1) + '%', errors: report.errors, fetched: report.fetched, runId: report.runId })\n      });\n    } catch (e) {\n      console.log(`Alert webhook failed: ${e.message}`);\n    }\n  }\n}\nreturn [$input.item];"
+      },
+      "id": "f13d0e9a-ceab-4d02-a522-ca785fe45498",
+      "name": "Send Alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1200,
+        576
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Daily 06:00": {
+      "main": [
+        [
+          {
+            "node": "Read Checkpoint",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Checkpoint": {
+      "main": [
+        [
+          {
+            "node": "Fetch Changed Law URLs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Changed Law URLs": {
+      "main": [
+        [
+          {
+            "node": "No Changes?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "No Changes?": {
+      "main": [
+        [
+          {
+            "node": "Loop: Process Laws",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Save Results & Update Checkpoint",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop: Process Laws": {
+      "main": [
+        [
+          {
+            "node": "Save Results & Update Checkpoint",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fetch & Parse Law Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch & Parse Law Page": {
+      "main": [
+        [
+          {
+            "node": "Should Enrich?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Should Enrich?": {
+      "main": [
+        [
+          {
+            "node": "Call Gemini",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build EnrichedDocument",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Gemini": {
+      "main": [
+        [
+          {
+            "node": "Extract Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Summary": {
+      "main": [
+        [
+          {
+            "node": "Build EnrichedDocument",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build EnrichedDocument": {
+      "main": [
+        [
+          {
+            "node": "Loop: Process Laws",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Results & Update Checkpoint": {
+      "main": [
+        [
+          {
+            "node": "Send Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
   },
-  "id": "nrw-daily-placeholder"
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "c16637ef-eb6e-473d-8c4e-aacd53bdc596",
+  "meta": {
+    "instanceId": "7c59d92c147f2480fe1cdd805b134c46ff05380bd03d55108bd4655c321177ed"
+  },
+  "id": "vNT11kNGlZVSLo57",
+  "tags": []
 }

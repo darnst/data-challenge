@@ -1,0 +1,71 @@
+[
+  {
+    "legal_act": {
+      "document_id": "landesbesoldungsgesetz-lbesg-nrw",
+      "url": "https://recht.nrw.de/lrgv/gesetz/01012026-landesbesoldungsgesetz-lbesg-nrw",
+      "canonical_source_url": "https://recht.nrw.de/lrgv/gesetz/01012026-landesbesoldungsgesetz-lbesg-nrw",
+      "fallback_text_url": null,
+      "title": "Besoldungsgesetz fuer das Land Nordrhein-Westfalen (LBesG NRW)",
+      "title_short": "LBesG NRW",
+      "summary": "Das Landesbesoldungsgesetz NRW regelt die Besoldung der Beamtinnen und Beamten sowie Richterinnen und Richter im Land Nordrhein-Westfalen. Es legt Besoldungsgruppen, Grundgehaelter und Zulagen fest und gilt fuer alle Personen in einem oeffentlich-rechtlichen Dienst- und Treueverhaeltnis zum Land NRW.",
+      "abbreviation": "LBesG NRW",
+      "language": "de",
+      "is_in_force": true,
+      "type": "law",
+      "jurisdiction": "de_nw",
+      "enactment_date": "2016-06-14",
+      "entry_into_force_date": "2026-01-01",
+      "last_amendment_date": "2025-12-10",
+      "validity_date": null,
+      "publication_date": "2025-12-15",
+      "entity_type": "legal_act"
+    },
+    "legal_act_relations": []
+  },
+  {
+    "legal_act": {
+      "document_id": "verordnung-ueber-die-laufbahn-der-beamtinnen-und-beamten",
+      "url": "https://recht.nrw.de/lrgv/rechtsverordnung/01022026-verordnung-ueber-die-laufbahn-der-beamtinnen-und-beamten",
+      "canonical_source_url": "https://recht.nrw.de/lrgv/rechtsverordnung/01022026-verordnung-ueber-die-laufbahn-der-beamtinnen-und-beamten",
+      "fallback_text_url": null,
+      "title": "Verordnung ueber die Laufbahn der Beamtinnen und Beamten im Land Nordrhein-Westfalen",
+      "title_short": "LVO NRW",
+      "summary": null,
+      "abbreviation": "LVO NRW",
+      "language": "de",
+      "is_in_force": true,
+      "type": "regulation",
+      "jurisdiction": "de_nw",
+      "enactment_date": null,
+      "entry_into_force_date": "2026-02-01",
+      "last_amendment_date": null,
+      "validity_date": null,
+      "publication_date": null,
+      "entity_type": "legal_act"
+    },
+    "legal_act_relations": []
+  },
+  {
+    "legal_act": {
+      "document_id": "bekanntmachung-des-inkrafttretens-des-staatsvertrags-rundfunk-2026",
+      "url": "https://recht.nrw.de/lrgv/bekanntmachung/15012026-bekanntmachung-des-inkrafttretens-des-staatsvertrags-rundfunk-2026",
+      "canonical_source_url": "https://recht.nrw.de/lrgv/bekanntmachung/15012026-bekanntmachung-des-inkrafttretens-des-staatsvertrags-rundfunk-2026",
+      "fallback_text_url": null,
+      "title": "Bekanntmachung des Inkrafttretens des Staatsvertrags zur Modernisierung der Medienordnung 2026",
+      "title_short": null,
+      "summary": null,
+      "abbreviation": null,
+      "language": "de",
+      "is_in_force": true,
+      "type": "announcement",
+      "jurisdiction": "de_nw",
+      "enactment_date": null,
+      "entry_into_force_date": "2026-01-15",
+      "last_amendment_date": null,
+      "validity_date": null,
+      "publication_date": "2026-01-20",
+      "entity_type": "legal_act"
+    },
+    "legal_act_relations": []
+  }
+]

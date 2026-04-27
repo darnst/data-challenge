@@ -83,6 +83,30 @@ Beispiel (`schemas/enriched_legal_act.schema.json`):
 }
 ```
 
+## Idempotenz- und Fehlerklassen-Regeln
+
+### Idempotenz (Daily-Workflow)
+
+Der Daily-Workflow ist idempotent: Mehrfaches Ausloesen am selben Tag erzeugt keine doppelten Dokumente.
+
+- **Mechanismus:** `results/checkpoint.json` speichert `lastRun` (ISO-Datum). Beim naechsten Lauf werden
+  nur Sitemaps-Eintraege verarbeitet, deren `lastmod ≥ lastRun - 2 Tage`.
+- **Re-Run gleicher Tag:** `lastRun = today` wurde bereits gesetzt. Der Lauf verarbeitet erneut alle
+  Dokumente mit `lastmod >= today - 2 Tage` und schreibt eine neue `daily_*.json`. Keine neuen
+  Seiteneffekte, solange das Downstream-System Upserts per `document_id` macht.
+- **Manueller Re-Run:** `results/checkpoint.json` loeschen oder `lastRun` zuruecksetzen, um alle Aenderungen
+  seit einem frueheren Datum erneut zu verarbeiten.
+
+### Fehlerklassen
+
+| Klasse       | Beispiele              | Verhalten                                                  |
+|--------------|------------------------|------------------------------------------------------------|
+| **Transient** | Timeout, 5xx           | 3 Versuche mit exponentiellem Backoff (1s, 2s)            |
+| **Permanent** | 404, 403               | Sofortiger Abbruch, Fehler-Record in NDJSON + Report       |
+| **Abgebrochen** | Aufgehobenes Gesetz  | Eintrag mit `reason: abrogated` im Report, nicht im Output |
+
+Bei Fehlerquote > 10 % sendet der `Send Alert`-Node einen POST-Request an `ALERT_WEBHOOK_URL` (falls gesetzt).
+
 ## Erwartete Deliverables (Minimal)
 - `README.md` als zentrale Aufgabenstellung + technische Doku
 - Exportierte `n8n`-Workflows (`.json`)
@@ -97,29 +121,84 @@ Beispiel (`schemas/enriched_legal_act.schema.json`):
 - Setup ist fuer Dritte in < 30 Minuten startbar.
 
 ## Schnellstart fuer Werkstudenten (von 0)
-1. Repository auschecken und in den Projektordner wechseln.
-2. Python-Umgebung aufsetzen und Dependencies installieren:
-   - `python3 -m venv .venv`
-   - `source .venv/bin/activate`
-   - `pip install -r requirements.txt`
-3. Umgebungsvariablen anlegen:
-   - `.env.example` nach `.env` kopieren
-   - benoetigte Werte eintragen (mindestens Quellen + optional LLM Key)
-4. `n8n` lokal starten und Workflows importieren:
-   - `workflows/nrw_backfill.json`
-   - `workflows/nrw_daily_pipeline.json`
-5. Ergebnis- und Reportformat anhand von:
-   - `results/sample_records.json`
-   - `results/run_report_example.json`
-6. Vor Abgabe sicherstellen:
-   - Workflows exportiert und aktualisiert
-   - offene Punkte dokumentiert
-   - PR mit Testhinweisen erstellt
 
-### Optionaler Komfort via Makefile
-- `make setup` erstellt lokale venv und installiert `requirements.txt`.
-- `make check` validiert die JSON-Beispieldateien auf gueltiges JSON.
-- `make run-backfill` und `make run-daily` zeigen die vorgesehenen Startpunkte in `n8n`.
+### 1. Repo und Python-Umgebung
+```bash
+git clone <repo-url> && cd data-challenge
+make setup          # erstellt .venv und installiert requirements.txt
+```
+
+### 2. n8n starten
+
+**Option A – npx (kein Docker noetig):**
+```bash
+npx n8n
+```
+
+**Option B – Docker:**
+```bash
+docker run -it --rm -p 5678:5678 \
+  -v n8n_data:/home/node/.n8n \
+  n8nio/n8n
+```
+
+n8n laeuft dann unter `http://localhost:5678`.
+
+### 3. Variablen in n8n setzen
+
+In n8n: **Settings → Variables** – folgende Werte anlegen (Name exakt wie angegeben):
+
+| Variable | Pflicht | Beschreibung |
+|---|---|---|
+| `RESULTS_DIR` | nein | Absoluter Pfad fuer Ausgabedateien. Leer = `~/.n8n/nrw-results` |
+| `ALERT_WEBHOOK_URL` | nein | POST-Ziel bei Fehlerquote > 10 % |
+
+> **LLM-Enrichment mit Google Gemini:** Der "Call Gemini"-Node ist ein HTTP-Request-Node mit Google-Gemini-Credential.  
+> Einrichtung (einmalig, Community Edition reicht): **Settings → Credentials → New → Google Gemini(PaLM) API** → API-Key eintragen.  
+> Nach dem Import der Workflows: "Call Gemini"-Node öffnen → Credential-Feld → das neu angelegte Credential wählen.  
+> Ohne Credential bleibt `summary: null` — der Workflow laeuft trotzdem sauber durch.
+
+> Hinweis: Die Workflows nutzen `$vars.NAME` (n8n Variables), nicht `process.env`. Code-Nodes haben seit n8n v1.0 standardmaessig keinen Zugriff auf OS-Umgebungsvariablen.
+
+### 4. Workflows importieren
+
+In n8n: **Workflows → Import from File**:
+- `workflows/nrw_backfill.json` — manuell starten fuer Vollimport
+- `workflows/nrw_daily_pipeline.json` — aktivieren (Toggle) fuer taeglichen Lauf um 06:00 UTC
+
+### 5. Ergebnis pruefen
+```bash
+make check          # validiert sample_records.json + alle backfill_*.json / daily_*.json
+```
+
+Beispielformat: `results/sample_records.json`, `results/run_report_example.json`.
+
+### 6. Vor Abgabe
+- Workflows in n8n ggf. anpassen und als JSON re-exportieren
+- `make generate-workflows` regeneriert die Workflow-JSONs aus `scripts/gen_workflows.py`
+- Offene Punkte dokumentieren, PR mit Testhinweisen erstellen
+
+### Makefile-Targets im Ueberblick
+| Target | Beschreibung |
+|---|---|
+| `make setup` | venv erstellen + requirements installieren |
+| `make check` | JSON-Validierung + Qualitaetschecks |
+| `make fetch-sample` | Echtdaten-Sample von recht.nrw.de fetchen |
+| `make generate-workflows` | Workflow-JSONs aus gen_workflows.py regenerieren |
+| `make start-n8n` | Startbefehle anzeigen |
+| `make run-backfill` | Anleitung Backfill-Workflow |
+| `make run-daily` | Anleitung Daily-Workflow |
 
 Freue mich sehr auf deine Ergebnisse!
 NM
+
+## Offene Punkte und bekannte Limitierungen
+
+| Punkt | Status | Naechste Schritte (Phase 2) |
+|---|---|---|
+| `legal_act_relations` leer | Bewusst ausgelassen: Verweise liegen im Fliesstext, zu aufwaendig fuer n8n-Code-Nodes | LLM-Extraktion aus Volltext (z. B. GPT-4 mit strukturiertem Output) |
+| `summary` nur mit Gemini-Key | Ohne Google-Gemini-Credential bleibt `summary: null` | Credential in n8n anlegen (Settings → Credentials → Google Gemini(PaLM) API); Modell: `gemini-2.5-flash` |
+| Rate-Limiting recht.nrw.de | Unbekannt; 1,2 s Delay zwischen Requests eingebaut | Fehlermonitoring; ggf. Delay erhoehen bei gehaeuften 429-Antworten |
+| Historische Fassungen | Nur aktuelle Fassung (hoechstes Datum &le; heute) wird verarbeitet | Versionierung: alle Fassungen mit `entity_type: consolidated_act` speichern |
+| `publication_date` | Aus GV-Fundstelle geparst; nicht immer vorhanden (kein standardisiertes Feld) | Lookup-Tabelle GV-NRW-Ausgaben (Jahrgang + Nummer → Erscheinungsdatum) |
+| Volltext-Speicherung | Volltext wird nur waehrend der n8n-Ausfuehrung zwischengespeichert, nicht persistiert | Volltext in separatem Feld oder Datei ablegen fuer spaetere Nachverarbeitung |

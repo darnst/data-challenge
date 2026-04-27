@@ -1,0 +1,11 @@
+{
+  "runId": "daily_2026-04-27T18-01-28",
+  "mode": "daily",
+  "fetched": 16,
+  "extracted": 16,
+  "enriched": 16,
+  "newDocuments": 3,
+  "updatedDocuments": 13,
+  "errors": 0,
+  "topErrorReasons": []
+}

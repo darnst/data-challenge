@@ -1,0 +1,11 @@
+{
+  "runId": "backfill_2026-04-27T17-38-00",
+  "mode": "backfill",
+  "fetched": 10,
+  "extracted": 10,
+  "enriched": 10,
+  "newDocuments": 10,
+  "updatedDocuments": 0,
+  "errors": 0,
+  "topErrorReasons": []
+}

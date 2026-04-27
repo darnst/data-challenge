@@ -1,0 +1,51 @@
+{
+  "name": "nrw_error_reporter",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "er000003-0000-0000-0000-000000000001",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        180,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const execution = $input.item.json;\nconst webhookUrl = $vars.ALERT_WEBHOOK_URL || null;\n\nconst workflowName = execution.workflow?.name || 'unknown';\nconst errorMessage = execution.execution?.error?.message || 'Unknown error';\nconst lastNode = execution.execution?.lastNodeExecuted || 'unknown';\nconst executionId = execution.execution?.id || 'unknown';\n\nconst msg = `[${workflowName}] CRASH at \"${lastNode}\": ${errorMessage}`;\nconsole.error(msg);\n\nif (webhookUrl) {\n  try {\n    await this.helpers.httpRequest({\n      method: 'POST',\n      url: webhookUrl,\n      headers: { 'Content-Type': 'application/json' },\n      body: JSON.stringify({ alert: 'workflow_crash', workflow: workflowName, error: errorMessage, lastNode, executionId })\n    });\n  } catch (e) {\n    console.log(`Alert webhook failed: ${e.message}`);\n  }\n}\nreturn [$input.item];"
+      },
+      "id": "er000003-0000-0000-0000-000000000002",
+      "name": "Send Crash Alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        420,
+        400
+      ]
+    }
+  ],
+  "connections": {
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Send Crash Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "00000000-0000-0000-0000-000000000003",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "id": "nrw-error-reporter"
+}
