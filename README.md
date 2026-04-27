@@ -133,8 +133,17 @@ make setup          # erstellt .venv und installiert requirements.txt
 
 ### 2. n8n starten
 
+Die Workflows nutzen `fs`, `path` und `os` in Code-Nodes. n8n sperrt diese Module standardmaessig — die folgenden Umgebungsvariablen **muessen** vor dem Start gesetzt sein:
+
+```bash
+export NODE_FUNCTION_ALLOW_BUILTIN="fs,path,os"
+export NODE_FUNCTION_ALLOW_ENV="*"
+```
+
 **Option A – npx (kein Docker noetig):**
 ```bash
+export NODE_FUNCTION_ALLOW_BUILTIN="fs,path,os"
+export NODE_FUNCTION_ALLOW_ENV="*"
 npx n8n
 ```
 
@@ -142,6 +151,8 @@ npx n8n
 ```bash
 docker run -it --rm -p 5678:5678 \
   -v n8n_data:/home/node/.n8n \
+  -e NODE_FUNCTION_ALLOW_BUILTIN="fs,path,os" \
+  -e NODE_FUNCTION_ALLOW_ENV="*" \
   n8nio/n8n
 ```
 

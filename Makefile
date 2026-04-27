@@ -24,10 +24,20 @@ fetch-sample:
 	$(VENV_DIR)/bin/python3 scripts/fetch_sample.py
 
 start-n8n:
-	@echo "n8n starten (npx):  npx n8n"
-	@echo "n8n starten (Docker): docker run -it --rm -p 5678:5678 -v n8n_data:/home/node/.n8n n8nio/n8n"
+	@echo "Pflicht-Umgebungsvariablen setzen (Code-Nodes benoetigen fs/path/os):"
+	@echo "  export NODE_FUNCTION_ALLOW_BUILTIN=\"fs,path,os\""
+	@echo "  export NODE_FUNCTION_ALLOW_ENV=\"*\""
+	@echo ""
+	@echo "n8n starten (npx):"
+	@echo "  export NODE_FUNCTION_ALLOW_BUILTIN=\"fs,path,os\" NODE_FUNCTION_ALLOW_ENV=\"*\" && npx n8n"
+	@echo ""
+	@echo "n8n starten (Docker):"
+	@echo "  docker run -it --rm -p 5678:5678 -v n8n_data:/home/node/.n8n \\"
+	@echo "    -e NODE_FUNCTION_ALLOW_BUILTIN=\"fs,path,os\" \\"
+	@echo "    -e NODE_FUNCTION_ALLOW_ENV=\"*\" \\"
+	@echo "    n8nio/n8n"
+	@echo ""
 	@echo "Danach: http://localhost:5678"
-	@echo "Umgebungsvariablen in n8n: Settings → Environment Variables (aus .env.example)"
 
 run-backfill:
 	@echo "1. n8n starten: make start-n8n"
