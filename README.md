@@ -257,7 +257,7 @@ NM
 
 ## Offene Punkte und bekannte Limitierungen
 
-| Punkt | Status | Naechste Schritte waeren |
+| Punkt | Status | Naechste Schritte wären |
 |---|---|---|
 | `legal_act_relations` leer | Bewusst ausgelassen: Verweise liegen im Fliesstext, zu aufwaendig fuer n8n-Code-Nodes | LLM-Extraktion aus Volltext (z. B. GPT-4 mit strukturiertem Output) |
 | `summary` nur mit Gemini-Key | Ohne Google-Gemini-Credential bleibt `summary: null` | Credential in n8n anlegen (Settings → Credentials → Google Gemini(PaLM) API); Modell: `gemini-2.5-flash` |
