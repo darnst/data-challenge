@@ -144,27 +144,46 @@ docker run -it --rm -p 5678:5678 \
 
 n8n laeuft dann unter `http://localhost:5678`.
 
-### 3. Variablen in n8n setzen
+### 3. Credentials und Variablen in n8n setzen
+
+#### API-Keys: immer in n8n Credentials, nie in `.env`
+
+> ⚠️ **Wichtig:** API-Keys gehoeren **ausschliesslich** in n8n's verschluesselten Credential-Speicher —
+> **nicht** in `.env`, **nicht** als n8n Variable.  
+> Code-Nodes haben seit n8n v1.0 keinen Zugriff auf OS-Umgebungsvariablen (`process.env`).  
+> n8n Variables (`$vars`) sind fuer unkritische Konfigurationswerte, nicht fuer Secrets.
+
+**Google Gemini API-Key (fuer LLM-Enrichment, optional):**
+
+1. In n8n: **Settings → Credentials → Add Credential → Google Gemini(PaLM) API**
+2. API-Key eintragen und speichern
+3. Nach dem Import der Workflows: in `nrw_backfill.json` und `nrw_daily_pipeline.json` den **"Call Gemini"-Node** oeffnen → Credential-Feld → das eben angelegte Credential auswaehlen
+4. Ohne Credential bleibt `summary: null` — der Workflow laeuft trotzdem sauber durch
+
+#### n8n Variables (keine Secrets)
 
 In n8n: **Settings → Variables** – folgende Werte anlegen (Name exakt wie angegeben):
 
 | Variable | Pflicht | Beschreibung |
 |---|---|---|
 | `RESULTS_DIR` | nein | Absoluter Pfad fuer Ausgabedateien. Leer = `~/.n8n/nrw-results` |
-| `ALERT_WEBHOOK_URL` | nein | POST-Ziel bei Fehlerquote > 10 % |
+| `ALERT_WEBHOOK_URL` | nein | Webhook-URL fuer Alerts bei Fehlerquote > 10 % und bei Workflow-Abbruch |
 
-> **LLM-Enrichment mit Google Gemini:** Der "Call Gemini"-Node ist ein HTTP-Request-Node mit Google-Gemini-Credential.  
-> Einrichtung (einmalig, Community Edition reicht): **Settings → Credentials → New → Google Gemini(PaLM) API** → API-Key eintragen.  
-> Nach dem Import der Workflows: "Call Gemini"-Node öffnen → Credential-Feld → das neu angelegte Credential wählen.  
-> Ohne Credential bleibt `summary: null` — der Workflow laeuft trotzdem sauber durch.
+### 4. Workflows importieren und konfigurieren
 
-> Hinweis: Die Workflows nutzen `$vars.NAME` (n8n Variables), nicht `process.env`. Code-Nodes haben seit n8n v1.0 standardmaessig keinen Zugriff auf OS-Umgebungsvariablen.
+In n8n: **Workflows → Import from File** — alle drei Dateien importieren:
 
-### 4. Workflows importieren
+| Datei | Beschreibung | Nach Import |
+|---|---|---|
+| `workflows/nrw_error_reporter.json` | **Zuerst importieren.** Fängt unerwartete Workflow-Abbrüche ab und sendet Crash-Alert an `ALERT_WEBHOOK_URL`. | Wird automatisch aktiviert (`active: true`). |
+| `workflows/nrw_backfill.json` | Einmaliger Vollimport aller NRW-Gesetze. | Workflow-Settings öffnen → **"Error Workflow"** → `nrw_error_reporter` auswaehlen. Danach manuell starten. |
+| `workflows/nrw_daily_pipeline.json` | Taeglich 06:00 UTC, verarbeitet Aenderungen seit letztem Lauf. | Workflow-Settings öffnen → **"Error Workflow"** → `nrw_error_reporter` auswaehlen. Danach Workflow aktivieren (Toggle oben rechts). |
 
-In n8n: **Workflows → Import from File**:
-- `workflows/nrw_backfill.json` — manuell starten fuer Vollimport
-- `workflows/nrw_daily_pipeline.json` — aktivieren (Toggle) fuer taeglichen Lauf um 06:00 UTC
+> **Monitoring & Alerting:** Zwei Mechanismen greifen ineinander:
+> - **Fehlerquote > 10 %** im selben Lauf: `Send Alert`-Node in Backfill und Daily sendet POST an `ALERT_WEBHOOK_URL`.
+> - **Unerwarteter Workflow-Abbruch** (Node-Crash, n8n-Fehler): `nrw_error_reporter` faengt den Fehler via `errorTrigger` ab und sendet ebenfalls POST an `ALERT_WEBHOOK_URL`.
+> - Beide Alerts enthalten `workflow`, `runId`/`executionId`, `errorMessage` und betroffenen Node.
+> - Ohne `ALERT_WEBHOOK_URL` werden Fehler nur in den n8n-Execution-Logs sichtbar.
 
 ### 5. Ergebnis pruefen
 ```bash
